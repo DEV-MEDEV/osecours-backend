@@ -1,0 +1,33 @@
+# swagger/infos/index.yaml
+paths:
+  /v1/info:
+    get:
+      summary: Informations générales sur l'application
+      tags:
+        - Info
+      responses:
+        '200':
+          description: Renvoie le nom de l'application, l'auteur, l'environnement, etc.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appName:
+                    type: string
+                    example: O'secours Backend
+                  description:
+                    type: string
+                    example: API backend du système d’alerte et de coordination des secours
+                  author:
+                    type: string
+                    example: MEDEV GROUP
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  environment:
+                    type: string
+                    example: development
+                  date:
+                    type: string
+                    format: date-time

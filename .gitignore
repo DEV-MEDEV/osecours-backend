@@ -1,0 +1,38 @@
+# 📦 Dépendances
+node_modules/
+
+# 🔐 Variables d'environnement
+.env
+.env.local
+.env.*.local
+
+# ⚙️ Fichiers système/IDE
+.DS_Store
+Thumbs.db
+
+# 🚫 Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 📁 Dossiers générés
+/generated/
+.generated/
+build/
+dist/
+coverage/
+
+# 🧬 Prisma
+prisma/generated/
+generated/prisma/
+*.db
+
+# 📚 Swagger (si tu génères la doc)
+swagger-output.json
+
+# 🔍 IDE / outils de dev
+.vscode/
+.idea/
+
+# 🔧 Husky (si jamais tu reviens dessus plus tard)
+.husky/_/

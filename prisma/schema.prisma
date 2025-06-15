@@ -1,0 +1,525 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+
+/**
+ * Table des utilisateurs du système
+ * Gère tous les types d'utilisateurs : citoyens, membres des services de secours, administrateurs
+ * Inclut la gestion du soft delete et l'authentification
+ */
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique @db.VarChar(255)
+  passwordHash  String   @map("password_hash") @db.VarChar(255)
+  phoneNumber   String?  @map("phone_number") @db.VarChar(20)
+  role          Role     @default(CITIZEN)
+  firstName     String   @map("first_name") @db.VarChar(100)
+  lastName      String   @map("last_name") @db.VarChar(100)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  deletedBy     String?  @map("deleted_by")
+
+  // Relations
+  photo UserPhoto?
+  rescueMember RescueMember?
+  adminRights AdminRight?
+  reportedAlerts Alert[]
+  sentMessages Message[]
+  tokens Token[]
+  safeNumbers SafeNumber[]
+  externalIds ExternalId[]
+  sentNotifications     Notification[] @relation("SentNotifications")
+  receivedNotifications Notification[] @relation("ReceivedNotifications")
+  adminMessages AdminMessage[]
+  logs Log[]
+
+  @@map("users")
+
+  // Indexes pour optimiser les requêtes
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
+  @@index([phoneNumber])
+}
+
+/**
+ * Énumération des rôles utilisateur dans le système
+ * CITIZEN: Citoyen lambda pouvant créer des alertes
+ * RESCUE_MEMBER: Membre d'un service de secours
+ * ADMIN: Administrateur du système
+ */
+enum Role {
+  CITIZEN
+  RESCUE_MEMBER
+  ADMIN
+}
+
+/**
+ * Table des services de secours (pompiers, police, SAMU, etc.)
+ * Centralise les informations des différents services d'urgence
+ * Permet l'activation/désactivation et la gestion des contacts
+ */
+model RescueService {
+  id            String   @id @default(uuid())
+  name          String   @db.VarChar(255)
+  serviceType   String   @map("service_type") @db.VarChar(100)
+  contactNumber String   @map("contact_number") @db.VarChar(20)
+  description   String?  @db.Text
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  deletedBy     String?  @map("deleted_by")
+
+  // Relations
+  members RescueMember[]
+
+  @@map("rescue_services")
+}
+
+/**
+ * Table de la photo de profil utilisateur
+ * Stocke l'URL de la photo uploadée par l'utilisateur
+ * Relation 1:1 avec Users (un utilisateur = une seule photo)
+ */
+model UserPhoto {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  photoUrl  String   @map("photo_url") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?  @map("deleted_by")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_photos")
+}
+
+/**
+ * Table des membres des services de secours
+ * Lie un utilisateur à un service de secours avec des informations spécifiques
+ * Relation 1:1 avec Users, N:1 avec RescueServices
+ */
+model RescueMember {
+  id               String   @id @default(uuid())
+  userId           String   @unique @map("user_id")
+  rescueServiceId  String   @map("rescue_service_id")
+  position         String   @db.VarChar(100)
+  badgeNumber      String   @unique @map("badge_number") @db.VarChar(50)
+  isOnDuty         Boolean  @default(false) @map("is_on_duty")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+  deletedBy        String?  @map("deleted_by")
+
+  // Relations
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rescueService  RescueService @relation(fields: [rescueServiceId], references: [id], onDelete: Cascade)
+  interventions Intervention[]
+
+  @@map("rescue_members")
+}
+
+/**
+ * Table des droits d'administration
+ * Définit les permissions spécifiques pour les utilisateurs administrateurs
+ * Relation 1:1 avec Users (seuls les admins ont des droits)
+ */
+model AdminRight {
+  id          String   @id @default(uuid())
+  userId      String   @unique @map("user_id")
+  permissions Json
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_rights")
+}
+
+/**
+ * Table des codes OTP pour l'authentification des citoyens
+ * Stocke les codes de vérification temporaires envoyés par SMS
+ * Utilisée pour la vérification du numéro de téléphone lors de l'inscription
+ */
+model CitizenOtp {
+  id          String   @id @default(uuid())
+  phoneNumber String   @unique @map("phone_number") @db.VarChar(20)
+  otp         String   @unique @db.VarChar(10)
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?  @map("deleted_by")
+
+  @@map("citizen_otps")
+}
+
+/**
+ * Table des alertes d'urgence
+ * Stocke toutes les alertes créées par les citoyens
+ * Point central du système d'alerte avec géolocalisation
+ */
+model Alert {
+  id          String        @id @default(uuid())
+  reporterId  String        @map("reporter_id")
+  location    String        @db.Text // GEOMETRY(Point, 4326) sera géré par l'application
+  status      AlertStatus   @default(EN_ATTENTE)
+  category    AlertCategory
+  description String?       @db.Text
+  address     String?       @db.VarChar(500)
+  severity    AlertSeverity @default(MEDIUM)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  deletedAt   DateTime?     @map("deleted_at")
+  deletedBy   String?       @map("deleted_by")
+
+  // Relations
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  media    AlertMedia[]
+  interventions Intervention[]
+
+  @@map("alerts")
+
+  // Indexes pour optimiser les requêtes
+  @@index([status])
+  @@index([category])
+  @@index([severity])
+  @@index([reporterId])
+  @@index([status, category, severity]) // Index composé pour filtres combinés
+  @@index([createdAt])
+}
+
+/**
+ * Énumération des statuts d'alerte
+ */
+enum AlertStatus {
+  EN_ATTENTE
+  ACCEPTEE
+  EN_COURS
+  RESOLUE
+  ANNULEE
+}
+
+/**
+ * Énumération des catégories d'alerte
+ */
+enum AlertCategory {
+  Accidents
+  Incendies
+  Inondations
+  Malaises
+  Noyade
+  Autre
+}
+
+/**
+ * Énumération des niveaux de gravité
+ */
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/**
+ * Table des médias attachés aux alertes
+ * Stocke les photos, vidéos et fichiers audio joints à une alerte
+ * Relation N:1 avec Alerts (une alerte peut avoir plusieurs médias)
+ */
+model AlertMedia {
+  id           String    @id @default(uuid())
+  alertId      String    @map("alert_id")
+  mediaType    MediaType @map("media_type")
+  mediaUrl     String    @map("media_url") @db.Text
+  thumbnailUrl String?   @map("thumbnail_url") @db.Text
+  mediaFileId  String?   @map("media_file_id") // FK vers media_files (à créer plus tard)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
+
+  // Relations
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@map("alert_media")
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+  AUDIO
+}
+
+/**
+ * Table des interventions des services de secours
+ * Gère les interventions des membres de secours sur les alertes
+ * Relation N:1 avec Alert et RescueMember
+ */
+model Intervention {
+  id              String      @id @default(uuid())
+  alertId         String      @map("alert_id")
+  rescueMemberId  String      @map("rescue_member_id")
+  startTime       DateTime?   @map("start_time")
+  endTime         DateTime?   @map("end_time")
+  arrivalTime     DateTime?   @map("arrival_time")
+  status          InterventionStatus @default(EN_ROUTE)
+  notes           String?     @db.Text
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  deletedAt       DateTime?   @map("deleted_at")
+  deletedBy       String?     @map("deleted_by")
+
+  // Relations
+  alert         Alert         @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  rescueMember  RescueMember  @relation(fields: [rescueMemberId], references: [id], onDelete: Cascade)
+  conversation Conversation?
+
+  @@map("interventions")
+
+  // Indexes pour optimiser les requêtes
+  @@index([alertId])
+  @@index([rescueMemberId])
+  @@index([status])
+  @@index([status, rescueMemberId]) // Interventions actives par membre
+}
+
+enum InterventionStatus {
+  EN_ROUTE
+  SUR_PLACE
+  TERMINEE
+  ANNULEE
+}
+
+/**
+ * Table des conversations liées aux interventions
+ * Chaque intervention peut avoir une conversation pour la coordination
+ * Relation 1:1 avec Intervention
+ */
+model Conversation {
+  id             String    @id @default(uuid())
+  interventionId String    @unique @map("intervention_id")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+  deletedBy      String?   @map("deleted_by")
+
+  // Relations
+  intervention Intervention @relation(fields: [interventionId], references: [id], onDelete: Cascade)
+  messages      Message[]
+
+  @@map("conversations")
+}
+
+/**
+ * Table des messages dans les conversations
+ * Stocke tous les messages échangés lors des interventions
+ * Relation N:1 avec Conversation et User (expéditeur)
+ */
+model Message {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  senderId       String    @map("sender_id")
+  content        String    @db.Text
+  sentAt         DateTime  @default(now()) @map("sent_at")
+  isRead         Boolean   @default(false) @map("is_read")
+  readAt         DateTime? @map("read_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+  deletedBy      String?   @map("deleted_by")
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  media MessageMedia[]
+
+  @@map("messages")
+
+  // Indexes pour optimiser les requêtes
+  @@index([conversationId])
+  @@index([conversationId, sentAt]) // Messages chronologiques
+  @@index([isRead])
+}
+
+/**
+ * Table des médias attachés aux messages
+ * Stocke les fichiers (photos, vidéos, audio) envoyés dans les conversations
+ * Relation N:1 avec Message
+ */
+model MessageMedia {
+  id           String    @id @default(uuid())
+  messageId    String    @map("message_id")
+  mediaType    MediaType @map("media_type")
+  mediaUrl     String    @map("media_url") @db.Text
+  thumbnailUrl String?   @map("thumbnail_url") @db.Text
+  mediaFileId  String?   @map("media_file_id") // FK vers media_files (à créer plus tard)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
+
+  // Relations
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@map("message_media")
+}
+
+/**
+ * Table des tokens d'authentification
+ * Gère les tokens JWT (access et refresh) pour la sécurité
+ * Relation N:1 avec User
+ */
+model Token {
+  id        Int       @id @default(autoincrement())
+  userId    String    @map("user_id")
+  token     String    @db.Text
+  type      TokenType
+  isRevoked Boolean   @default(false) @map("is_revoked")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("tokens")
+}
+
+enum TokenType {
+  ACCESS
+  REFRESH
+}
+
+/**
+ * Table des numéros de confiance des utilisateurs
+ * Stocke les contacts d'urgence personnels de chaque utilisateur
+ * Relation N:1 avec User
+ */
+model SafeNumber {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  number      String   @db.VarChar(20)
+  description String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("safe_numbers")
+}
+
+/**
+ * Table des identifiants externes pour les notifications push
+ * Stocke les tokens/IDs des appareils mobiles pour les notifications
+ * Relation N:1 avec User
+ */
+model ExternalId {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  externalId  String   @unique @map("external_id") @db.VarChar(255)
+  phoneNumber String   @map("phone_number") @db.VarChar(20)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("external_ids")
+}
+
+/**
+ * Table des notifications système
+ * Gère l'envoi de notifications aux utilisateurs (push, email, SMS)
+ * Relation N:1 avec User (expéditeur et destinataire)
+ */
+model Notification {
+  id          String   @id @default(uuid())
+  senderId    String?  @map("sender_id")
+  message     String   @db.Text
+  type        String   @db.VarChar(50)
+  target      String   @db.VarChar(100)
+  recipientId String   @map("recipient_id")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  sender    User? @relation("SentNotifications", fields: [senderId], references: [id], onDelete: SetNull)
+  recipient User  @relation("ReceivedNotifications", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+
+  // Indexes pour optimiser les requêtes
+  @@index([recipientId])
+  @@index([isRead])
+  @@index([recipientId, isRead]) // Notifications non lues par user
+}
+
+/**
+ * Table des messages administrateurs
+ * Stocke les messages/annonces diffusés par les administrateurs
+ * Messages système à destination des utilisateurs ou services
+ */
+model AdminMessage {
+  id        String   @id @default(uuid())
+  adminId   String   @map("admin_id")
+  title     String   @db.VarChar(255)
+  content   String   @db.Text
+  level     String   @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@map("admin_messages")
+}
+
+/**
+ * Table des logs système (partitionnée par mois)
+ * Enregistre toutes les actions et événements du système
+ * Utilisée pour le monitoring, debugging et audit
+ */
+model Log {
+  id           String   @id @default(uuid())
+  message      String   @db.Text
+  source       String   @db.VarChar(100)
+  userId       String?  @map("user_id")
+  action       String   @db.VarChar(100)
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  requestData  Json?    @map("request_data")
+  responseData Json?    @map("response_data")
+  status       String   @db.VarChar(20)
+  environment  String   @db.VarChar(20)
+  deviceInfo   Json?    @map("device_info")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("logs")
+
+  // Indexes pour optimiser les requêtes
+  @@index([createdAt])
+  @@index([userId])
+  @@index([action])
+}
