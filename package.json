@@ -1,7 +1,10 @@
 {
-  "name": "new-osecours-backend",
-  "version": "0.0.0",
+  "name": "osecours-backend",
+  "version": "0.0.1",
+  "description": "Système d'alerte d'urgence - Backend API pour la gestion des alertes, interventions et communications entre citoyens et services de secours",
+  "author": "MEDEV GROUP",
   "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "start": "node ./bin/www",
     "dev": "nodemon ./bin/www",
@@ -17,6 +20,7 @@
     "debug": "~2.6.9",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
     "morgan": "~1.9.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
