@@ -3,7 +3,7 @@ module.exports = {
         {
             name: 'osecours-api', // Nom de votre application
             script: './bin/www', // Point d'entrée (identique à vos scripts npm)
-            env: {
+            env_development: {
                 NODE_ENV: 'development', // Variables d'environnement pour le mode développement
             },
             env_production: {
