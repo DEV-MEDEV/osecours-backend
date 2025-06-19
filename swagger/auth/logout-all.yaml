@@ -1,0 +1,107 @@
+openapi: 3.0.0
+info:
+  title: Authentication Logout All API
+  description: API de déconnexion globale pour tous les rôles
+  version: 1.0.0
+
+paths:
+  /v1/auth/logout/all:
+    delete:
+      tags:
+        - Authentication
+      summary: Déconnexion de toutes les sessions
+      description: |
+        Déconnecte l'utilisateur de toutes ses sessions actives en révoquant tous ses tokens d'accès et de rafraîchissement.
+        Utile en cas de compromission de compte ou pour forcer une déconnexion globale.
+        
+        **Note :** Tous les tokens de l'utilisateur seront révoqués, y compris celui utilisé pour cette requête.
+
+      security:
+        - bearerAuth: []
+
+      responses:
+        '200':
+          description: Déconnexion globale réussie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Déconnexion de toutes les sessions réussie"
+                  data:
+                    type: object
+                    nullable: true
+                    example: null
+
+        '401':
+          description: Erreur d'authentification
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    nullable: true
+              examples:
+                noToken:
+                  summary: Token manquant
+                  value:
+                    message: "Token d'authentification requis"
+                    data: null
+                invalidToken:
+                  summary: Token invalide
+                  value:
+                    message: "Token invalide"
+                    data: null
+                expiredToken:
+                  summary: Token expiré
+                  value:
+                    message: "Le token a expiré, veuillez vous reconnecter."
+                    data: null
+                revokedToken:
+                  summary: Token déjà révoqué
+                  value:
+                    message: "Token révoqué, veuillez vous reconnecter"
+                    data: null
+                userNotFound:
+                  summary: Utilisateur inexistant ou inactif
+                  value:
+                    message: "Utilisateur non trouvé ou inactif"
+                    data: null
+
+        '500':
+          description: Erreur serveur
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    nullable: true
+              examples:
+                logoutError:
+                  summary: Erreur lors de la déconnexion globale
+                  value:
+                    message: "Erreur lors de la déconnexion de toutes les sessions"
+                    data: null
+                internalError:
+                  summary: Erreur interne
+                  value:
+                    message: "Erreur interne du serveur"
+                    data: null
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT obtenu lors de la connexion

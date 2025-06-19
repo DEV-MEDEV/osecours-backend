@@ -1,4 +1,4 @@
-const { prisma } = require('../prisma/client');
+const prisma = require('../prisma/client');
 
 /**
  * Service de journalisation des événements système dans la base de données.

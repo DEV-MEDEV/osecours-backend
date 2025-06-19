@@ -1,0 +1,196 @@
+openapi: 3.0.0
+info:
+  title: Authentication Login API
+  description: API d'authentification unifiée pour tous les rôles
+  version: 1.0.0
+
+paths:
+  /v1/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Authentification unifiée pour tous les rôles
+      description: Endpoint d'authentification unique pour CITIZEN, RESCUE_MEMBER et ADMIN
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "lycoris@blue.com"
+                password:
+                  type: string
+                  minLength: 6
+                  example: "admin1234"
+
+      responses:
+        '200':
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Connexion réussie"
+                  data:
+                    type: object
+              examples:
+                adminSuccess:
+                  summary: Connexion administrateur réussie
+                  value:
+                    message: "Connexion réussie"
+                    data:
+                      user:
+                        id: "123e4567-e89b-12d3-a456-426614174000"
+                        email: "lycoris@blue.com"
+                        role: "ADMIN"
+                        firstName: "Admin"
+                        lastName: "Systeme"
+                      tokens:
+                        accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        refreshToken: null
+                      context:
+                        permissions: {}
+                        isActive: true
+                rescueSuccess:
+                  summary: Connexion rescue member réussie
+                  value:
+                    message: "Connexion réussie"
+                    data:
+                      user:
+                        id: "456e7890-e89b-12d3-a456-426614174001"
+                        email: "secours1@example.com"
+                        role: "RESCUE_MEMBER"
+                        firstName: "Membre1"
+                        lastName: "Service1"
+                      tokens:
+                        accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        refreshToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                      context:
+                        rescueService:
+                          id: "789e1234-e89b-12d3-a456-426614174002"
+                          name: "Pompiers"
+                          serviceType: "Incendie"
+                        position: "Intervenant"
+                        badgeNumber: "RM001"
+                        isOnDuty: false
+
+        '400':
+          description: Erreur de requête
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    oneOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              example: "field"
+                            value:
+                              type: string
+                              example: "email_invalide"
+                            msg:
+                              type: string
+                              example: "L'adresse e-mail est invalide"
+                            path:
+                              type: string
+                              example: "email"
+                            location:
+                              type: string
+                              example: "body"
+                      - type: object
+                        properties:
+                          missingFields:
+                            type: array
+                            items:
+                              type: string
+                          message:
+                            type: string
+              examples:
+                validationErrors:
+                  summary: Erreurs de validation express-validator
+                  value:
+                    message: "Données invalides"
+                    data:
+                      - type: "field"
+                        value: "email_invalide"
+                        msg: "L'adresse e-mail est invalide"
+                        path: "email"
+                        location: "body"
+                      - type: "field"
+                        value: "123"
+                        msg: "Le mot de passe doit contenir au moins 6 caractères"
+                        path: "password"
+                        location: "body"
+                missingFields:
+                  summary: Champs manquants (BodyFilter)
+                  value:
+                    message: "Champs manquants"
+                    data:
+                      missingFields: ["email", "password"]
+                      message: "Les champs suivants sont obligatoires: email, password"
+                unauthorizedFields:
+                  summary: Champs non autorisés (BodyFilter)
+                  value:
+                    message: "Champs non autorisés"
+                    data:
+                      unauthorizedFields: ["extraField"]
+                      allowedFields: ["email", "password"]
+                      message: "Les champs suivants ne sont pas autorisés: extraField"
+
+        '401':
+          description: Authentification échouée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    nullable: true
+              examples:
+                invalidCredentials:
+                  summary: Email ou mot de passe incorrect
+                  value:
+                    message: "Email ou mot de passe incorrect"
+                    data: null
+                userInactive:
+                  summary: Utilisateur inactif
+                  value:
+                    message: "Utilisateur non trouvé ou inactif"
+                    data: null
+
+        '500':
+          description: Erreur serveur
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Erreur interne du serveur"
+                  data:
+                    type: object
+                    nullable: true
+
+      security: []

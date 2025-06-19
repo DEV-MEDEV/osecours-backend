@@ -59,7 +59,8 @@ const options = {
     },
 
     apis: [
-        './swagger/infos/*.yaml'
+        './swagger/infos/*.yaml',
+        './swagger/auth/*.yaml',
       ]
 };
 

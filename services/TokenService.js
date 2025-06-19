@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const prisma = require('../config/prisma');
+const prisma = require('../prisma/client');
 const Consts = require('../config/const');
 
 class TokenService {
@@ -26,6 +26,7 @@ class TokenService {
 
         const token = jwt.sign(payload, Consts.JWT_SECRET, { expiresIn });
         const expiresAt = new Date(Date.now() + this._getExpirationMilliseconds(expiresIn));
+
 
         await prisma.token.create({
             data: {
@@ -148,7 +149,7 @@ class TokenService {
      */
     static async isTokenRevoked(token) {
         try {
-            const record = await prisma.token.findUnique({ where: { token } });
+            const record = await prisma.token.findFirst({ where: { token } });
             return !record || record.isRevoked;
         } catch {
             return true;

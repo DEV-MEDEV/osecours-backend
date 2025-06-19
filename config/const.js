@@ -1,3 +1,4 @@
+// config/const.js
 const dayjs = require('dayjs');
 
 class Consts {
@@ -20,6 +21,21 @@ class Consts {
         }
     })();
 
+    // Configuration SMS Letexto
+    static SMS_CONFIG = {
+        baseUrl: process.env.LETEXTO_API_URL,
+        apiKey: process.env.LETEXTO_API_KEY,
+        sender: 'REXTO',
+        countryCode: '225' // Côte d'Ivoire
+    };
+
+    // Configuration OTP
+    static OTP_CONFIG = {
+        length: 4,
+        expirationMinutes: 5,
+        maxAttempts: 3
+    };
+
     // Librairie de date (Day.js)
     static getDateLib() {
         return dayjs;
@@ -27,7 +43,7 @@ class Consts {
 
     // Description du projet
     static PROJECT_DESCRIPTION =
-        "API backend du système d’alerte et de coordination des secours O'secours, développé par MEDEV GROUP.";
+        "API backend du système d'alerte et de coordination des secours O'secours, développé par MEDEV GROUP.";
 }
 
 module.exports = Consts;
