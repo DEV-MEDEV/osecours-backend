@@ -14,7 +14,7 @@ const getServers = () => {
             break;
         case 'test':
             servers.push({
-                url: process.env.TEST_API_URL || 'https://test-api.osecours.com',
+                url: process.env.TEST_API_URL || 'https://test-osecours.api-medev.com',
                 description: 'Serveur de test'
             });
             break;
