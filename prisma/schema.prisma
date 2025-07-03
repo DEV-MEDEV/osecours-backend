@@ -30,6 +30,7 @@ model User {
   // Relations
   photo UserPhoto?
   rescueMember RescueMember?
+  assignedInterventions Intervention[] @relation("AssignedInterventions")
   adminRights AdminRight?
   reportedAlerts Alert[]
   sentMessages Message[]
@@ -38,7 +39,7 @@ model User {
   externalIds ExternalId[]
   sentNotifications     Notification[] @relation("SentNotifications")
   receivedNotifications Notification[] @relation("ReceivedNotifications")
-  adminMessages AdminMessage[]
+  sentBroadcasts BroadcastAlert[] @relation("SentBroadcasts")
   logs Log[]
 
   @@map("users")
@@ -116,7 +117,12 @@ model RescueMember {
   rescueServiceId  String   @map("rescue_service_id")
   position         String   @db.VarChar(100)
   badgeNumber      String   @unique @map("badge_number") @db.VarChar(50)
-  isOnDuty         Boolean  @default(false) @map("is_on_duty")
+  
+  availabilityStatus AvailabilityStatus @default(AVAILABLE) @map("availability_status") // Statut de disponibilité
+  currentLatitude    Decimal? @map("current_latitude") @db.Decimal(10, 8) // Position actuelle
+  currentLongitude   Decimal? @map("current_longitude") @db.Decimal(11, 8) // Position actuelle
+  lastPositionUpdate DateTime? @map("last_position_update") // Dernière mise à jour position
+  
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
@@ -126,8 +132,24 @@ model RescueMember {
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   rescueService  RescueService @relation(fields: [rescueServiceId], references: [id], onDelete: Cascade)
   interventions Intervention[]
+  positions     TeamPosition[] 
 
   @@map("rescue_members")
+  
+  // Index pour géolocalisation et statut
+  @@index([availabilityStatus])
+  @@index([currentLatitude, currentLongitude])
+  @@index([lastPositionUpdate])
+}
+
+/**
+ * Énumération des statuts de disponibilité des membres de secours
+ */
+enum AvailabilityStatus {
+  AVAILABLE     // Disponible pour intervention
+  BUSY         // En cours d'intervention
+  UNAVAILABLE  // Indisponible temporairement
+  OFF_DUTY     // Hors service
 }
 
 /**
@@ -177,12 +199,14 @@ model CitizenOtp {
 model Alert {
   id          String        @id @default(uuid())
   reporterId  String        @map("reporter_id")
-  location    String        @db.Text // GEOMETRY(Point, 4326) sera géré par l'application
+  latitude    Decimal?      @db.Decimal(10, 8) // Coordonnée latitude pour carte interactive
+  longitude   Decimal?      @db.Decimal(11, 8) // Coordonnée longitude pour carte interactive
   status      AlertStatus   @default(EN_ATTENTE)
   category    AlertCategory
   description String?       @db.Text
   address     String?       @db.VarChar(500)
   severity    AlertSeverity @default(MEDIUM)
+  assignedCount Int         @default(0) @map("assigned_count") // Nombre d'équipes assignées
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
   deletedAt   DateTime?     @map("deleted_at")
@@ -202,6 +226,7 @@ model Alert {
   @@index([reporterId])
   @@index([status, category, severity]) // Index composé pour filtres combinés
   @@index([createdAt])
+  @@index([latitude, longitude]) // Index géospatial pour carte
 }
 
 /**
@@ -269,26 +294,36 @@ enum MediaType {
 /**
  * Table des interventions des services de secours
  * Gère les interventions des membres de secours sur les alertes
+ * Support multi-équipes : 1 alerte peut avoir N interventions
  * Relation N:1 avec Alert et RescueMember
  */
 model Intervention {
-  id              String      @id @default(uuid())
-  alertId         String      @map("alert_id")
-  rescueMemberId  String      @map("rescue_member_id")
-  startTime       DateTime?   @map("start_time")
-  endTime         DateTime?   @map("end_time")
-  arrivalTime     DateTime?   @map("arrival_time")
-  status          InterventionStatus @default(EN_ROUTE)
-  notes           String?     @db.Text
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
-  deletedAt       DateTime?   @map("deleted_at")
-  deletedBy       String?     @map("deleted_by")
+  id              String             @id @default(uuid())
+  alertId         String             @map("alert_id")
+  rescueMemberId  String             @map("rescue_member_id")
+  
+  // NOUVEAUX CHAMPS pour assignation
+  assignedBy      String?            @map("assigned_by") // Qui a assigné cette intervention
+  assignedAt      DateTime?          @map("assigned_at") // Quand l'assignation a été faite
+  acceptedAt      DateTime?          @map("accepted_at") // Quand l'équipe a accepté
+  estimatedArrival DateTime?         @map("estimated_arrival") // ETA estimé
+  
+  // Champs existants
+  startTime       DateTime?          @map("start_time")
+  endTime         DateTime?          @map("end_time")
+  arrivalTime     DateTime?          @map("arrival_time")
+  status          InterventionStatus @default(ASSIGNED) // Statut étendu
+  notes           String?            @db.Text
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  deletedAt       DateTime?          @map("deleted_at")
+  deletedBy       String?            @map("deleted_by")
 
   // Relations
   alert         Alert         @relation(fields: [alertId], references: [id], onDelete: Cascade)
   rescueMember  RescueMember  @relation(fields: [rescueMemberId], references: [id], onDelete: Cascade)
-  conversation Conversation?
+  assignedByUser User?        @relation("AssignedInterventions", fields: [assignedBy], references: [id], onDelete: SetNull)
+  conversation  Conversation?
 
   @@map("interventions")
 
@@ -297,13 +332,58 @@ model Intervention {
   @@index([rescueMemberId])
   @@index([status])
   @@index([status, rescueMemberId]) // Interventions actives par membre
+  @@index([assignedBy]) // Interventions assignées par responsable
 }
 
+/**
+ * Énumération des statuts d'intervention étendus
+ */
 enum InterventionStatus {
-  EN_ROUTE
-  SUR_PLACE
-  TERMINEE
-  ANNULEE
+  ASSIGNED   // Assigné par le responsable (nouveau)
+  ACCEPTED   // Accepté par l'équipe (nouveau)
+  EN_ROUTE   // En route vers le lieu
+  SUR_PLACE  // Arrivé sur place
+  TERMINEE   // Intervention terminée
+  ANNULEE    // Intervention annulée
+}
+
+/**
+ * Table des positions GPS des équipes de secours
+ * Stocke l'historique des positions pour le suivi temps réel
+ * Permet de tracer les déplacements et optimiser les interventions
+ */
+model TeamPosition {
+  id               String       @id @default(uuid())
+  rescueMemberId   String       @map("rescue_member_id")
+  latitude         Decimal      @db.Decimal(10, 8) // Coordonnée GPS latitude
+  longitude        Decimal      @db.Decimal(11, 8) // Coordonnée GPS longitude
+  recordedAt       DateTime     @map("recorded_at") // Timestamp de la position
+  accuracy         Float?       // Précision GPS en mètres (optionnel)
+  heading          Float?       // Direction en degrés (0-360, optionnel)
+  speed            Float?       // Vitesse en km/h (optionnel)
+  source           PositionSource @default(GPS) // Source de la position
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  rescueMember RescueMember @relation(fields: [rescueMemberId], references: [id], onDelete: Cascade)
+
+  @@map("team_positions")
+
+  // Indexes pour optimiser les requêtes temps réel
+  @@index([rescueMemberId, recordedAt], map: "team_positions_member_time_idx")
+  @@index([recordedAt], map: "team_positions_recorded_at_idx") 
+  @@index([latitude, longitude], map: "team_positions_location_idx")
+  @@index([rescueMemberId, recordedAt(sort: Desc)], map: "team_positions_member_latest_idx")
+}
+
+/**
+ * Source de la position GPS
+ */
+enum PositionSource {
+  GPS        // Position GPS du téléphone/véhicule
+  MANUAL     // Position saisie manuellement
+  ESTIMATED  // Position estimée par le système
 }
 
 /**
@@ -474,23 +554,76 @@ model Notification {
 }
 
 /**
- * Table des messages administrateurs
- * Stocke les messages/annonces diffusés par les administrateurs
- * Messages système à destination des utilisateurs ou services
+ * Table des alertes diffusées à la population
+ * Permet aux responsables des secours d'envoyer des notifications
+ * ciblées géographiquement aux citoyens via l'application mobile
  */
-model AdminMessage {
-  id        String   @id @default(uuid())
-  adminId   String   @map("admin_id")
-  title     String   @db.VarChar(255)
-  content   String   @db.Text
-  level     String   @db.VarChar(50)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model BroadcastAlert {
+  id                    String            @id @default(uuid())
+  senderId              String            @map("sender_id") // Responsable qui envoie
+  title                 String            @db.VarChar(255) // Titre de l'alerte
+  message               String            @db.Text // Contenu du message
+  urgencyLevel          UrgencyLevel      @map("urgency_level") // Niveau d'urgence
+  category              AlertCategory     // Même enum que les alertes normales
+  
+  // Ciblage géographique
+  targetAreaCenterLat   Decimal?          @map("target_area_center_lat") @db.Decimal(10, 8)
+  targetAreaCenterLng   Decimal?          @map("target_area_center_lng") @db.Decimal(11, 8)
+  targetAreaRadius      Int?              @map("target_area_radius") // Rayon en mètres
+  targetAreaName        String?           @map("target_area_name") @db.VarChar(255) // "Plateau", "Cocody", etc.
+  
+  // Gestion temporelle
+  validUntil            DateTime?         @map("valid_until") // Expiration de l'alerte
+  
+  // Statistiques d'envoi
+  targetCount           Int               @default(0) @map("target_count") // Nombre de destinataires ciblés
+  sentCount             Int               @default(0) @map("sent_count") // Nombre d'envois réussis
+  deliveredCount        Int               @default(0) @map("delivered_count") // Nombre de livraisons confirmées
+  readCount             Int               @default(0) @map("read_count") // Nombre de lectures
+  
+  // Statut et métadonnées
+  status                BroadcastStatus   @default(DRAFT)
+  isActive              Boolean           @default(true) @map("is_active")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+  deletedAt             DateTime?         @map("deleted_at")
+  deletedBy             String?           @map("deleted_by")
 
   // Relations
-  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  sender User @relation("SentBroadcasts", fields: [senderId], references: [id], onDelete: Cascade)
 
-  @@map("admin_messages")
+  @@map("broadcast_alerts")
+
+  // Indexes pour optimiser les requêtes
+  @@index([senderId], map: "broadcast_alerts_sender_idx")
+  @@index([category], map: "broadcast_alerts_category_idx")
+  @@index([urgencyLevel], map: "broadcast_alerts_urgency_idx")
+  @@index([status], map: "broadcast_alerts_status_idx")
+  @@index([isActive], map: "broadcast_alerts_active_idx")
+  @@index([targetAreaCenterLat, targetAreaCenterLng], map: "broadcast_alerts_location_idx")
+  @@index([createdAt], map: "broadcast_alerts_created_idx")
+}
+
+/**
+ * Niveau d'urgence pour les alertes diffusées
+ */
+enum UrgencyLevel {
+  LOW       // Information générale
+  MEDIUM    // Attention requise
+  HIGH      // Action recommandée
+  CRITICAL  // Action immédiate obligatoire
+}
+
+/**
+ * Statut de diffusion de l'alerte
+ */
+enum BroadcastStatus {
+  DRAFT     // Brouillon, pas encore envoyé
+  SCHEDULED // Programmé pour envoi
+  SENDING   // En cours d'envoi
+  SENT      // Envoyé avec succès
+  FAILED    // Échec d'envoi
+  EXPIRED   // Expiré (passé validUntil)
 }
 
 /**
